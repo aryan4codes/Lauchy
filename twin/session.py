@@ -114,3 +114,32 @@ def delete_session(session_id: str) -> bool:
         lp.unlink()
         ok = True
     return ok
+
+
+def first_user_preview(session_id: str, max_len: int = 52) -> str | None:
+    """Earliest persisted user utterance truncated for sidebar labels."""
+    p = log_path(session_id)
+    if not p.exists():
+        return None
+    try:
+        with p.open(encoding="utf-8") as fh:
+            for line in fh:
+                line_s = line.strip()
+                if not line_s:
+                    continue
+                try:
+                    obj = json.loads(line_s)
+                except json.JSONDecodeError:
+                    continue
+                if obj.get("role") != "user":
+                    continue
+                content = obj.get("content")
+                if not isinstance(content, str):
+                    continue
+                t = " ".join(content.strip().split())
+                if not t:
+                    continue
+                return t[: max_len - 1] + ("…" if len(t) > max_len else "")
+    except OSError:
+        return None
+    return None

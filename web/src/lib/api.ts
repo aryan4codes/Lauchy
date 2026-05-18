@@ -140,6 +140,8 @@ export type VoiceProfile = {
   example_hooks: string[];
   /** On-camera / spoken delivery notes when reels were transcribed. */
   delivery_style?: string;
+  /** LLM-derived niche/genre labels (≤5 short phrases). */
+  content_categories?: string[];
   summary_block: string;
   created_at: string;
   updated_at: string;
@@ -254,6 +256,15 @@ export async function deleteVoiceProfile(profileId: string): Promise<void> {
   if (!r.ok) throw new Error(await r.text());
 }
 
+/** Re-infer niche tags from saved profile transcripts/summary without full re-profiling. */
+export async function recategorizeVoiceProfile(profileId: string): Promise<VoiceProfile> {
+  return j(
+    await fetch(apiUrl(`/voice/profiles/${encodeURIComponent(profileId)}/recategorize`), {
+      method: 'POST',
+    }),
+  );
+}
+
 export async function twinCreateSession(body: {
   voice_profile_id?: string | null;
 }): Promise<{ session_id: string }> {
@@ -266,10 +277,75 @@ export async function twinCreateSession(body: {
   );
 }
 
-export async function twinListSessions(): Promise<
-  { session_id: string; voice_profile_id: string | null; created_at: string; updated_at: string }[]
-> {
+export type TwinSessionListRow = {
+  session_id: string;
+  voice_profile_id: string | null;
+  created_at: string;
+  updated_at: string;
+  preview?: string;
+};
+
+export async function twinListSessions(): Promise<TwinSessionListRow[]> {
   return j(await fetch(apiUrl('/twin/sessions')));
+}
+
+export async function twinFetchSuggestions(voiceProfileId?: string | null): Promise<{ suggestions: string[] }> {
+  const q =
+    voiceProfileId && voiceProfileId.trim()
+      ? `?voice_profile_id=${encodeURIComponent(voiceProfileId)}`
+      : '';
+  return j(await fetch(apiUrl(`/twin/suggestions${q}`)));
+}
+
+export const DEFAULT_TWIN_TTS_VOICE = 'coral';
+
+export async function twinTtsSynthesize(body: {
+  text: string;
+  voice?: string;
+  model?: string;
+  instructions?: string | null;
+  persist?: boolean;
+  session_id?: string;
+}): Promise<{ blob: Blob; clipId: string | null }> {
+  const res = await fetch(apiUrl('/twin/tts'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      text: body.text,
+      voice: body.voice ?? DEFAULT_TWIN_TTS_VOICE,
+      model: body.model ?? 'gpt-4o-mini-tts',
+      instructions: body.instructions ?? null,
+      persist: !!body.persist,
+      session_id: body.session_id ?? null,
+    }),
+  });
+  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+  const clipId = res.headers.get('X-TTS-Clip-Id');
+  const blob = await res.blob();
+  return { blob, clipId: clipId?.trim() || null };
+}
+
+export type TwinTtsClipMeta = {
+  id: string;
+  session_id: string;
+  voice: string;
+  model: string;
+  text_preview: string;
+  created_at: string;
+  path: string;
+};
+
+export async function twinListTtsClips(sessionId?: string | null): Promise<TwinTtsClipMeta[]> {
+  const qs = sessionId?.trim()
+    ? `?session_id=${encodeURIComponent(sessionId)}`
+    : '';
+  const data = await j<{ clips: TwinTtsClipMeta[] }>(await fetch(apiUrl(`/twin/tts${qs}`)));
+  return data.clips ?? [];
+}
+
+export async function twinDeleteTtsClip(clipId: string): Promise<void> {
+  const r = await fetch(apiUrl(`/twin/tts/${encodeURIComponent(clipId)}`), { method: 'DELETE' });
+  if (!r.ok) throw new Error(await r.text());
 }
 
 export async function twinGetSession(sessionId: string): Promise<{ meta: unknown; messages: unknown[] }> {

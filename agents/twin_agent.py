@@ -34,15 +34,21 @@ def _build_voice_context(ctx: TwinToolContext) -> str:
     except Exception:
         return ""
 
-    lines = [
-        "═══ CREATOR VOICE PROFILE ═══",
-        f"Name: {p.creator_name}",
+    lines = []
+    cats = [c.strip() for c in getattr(p, "content_categories", []) if str(c).strip()]
+    if cats:
+        lines.append(f"CONTENT FOCUS / GENRE LABELS — {', '.join(cats)}")
+        lines.append("")
+    lines.extend(
+        [
+            "═══ CREATOR VOICE PROFILE ═══",
+            f"Name: {p.creator_name}",
         f"Tone: {', '.join(p.tone_descriptors)}",
         f"Signature vocabulary: {', '.join(p.vocabulary_signature)}",
         "",
         "HOW THEY WRITE:",
         p.sentence_style,
-    ]
+    ])
     if p.delivery_style:
         lines += ["", "ON-CAMERA DELIVERY:", p.delivery_style]
     if p.do_list:
@@ -100,6 +106,17 @@ def _system_prompt(ctx: TwinToolContext, voice_context: str = "") -> str:
             "Use query_memory only when claiming **historical Launchy performance** — verify with that tool.\n"
         )
 
+    voice_script_kb = ""
+    if ctx.voice_profile_id and ctx.tool_mongodb and mongodb_configured():
+        voice_script_kb = (
+            "**Grounding before `voice_script` (creator knowledge ON):** If your reply will include a fenced spoken script "
+            "(`voice_script` or alias), **`query_creator_knowledge` runs first this turn**: one or two queries that marry the "
+            "user’s topic to their reels (e.g. hook style, recurring phrases, themes from captions/transcripts). "
+            "**Skip retrieval** only when the question is unrelated to voiced content or the user pasted a full draft for light edits unchanged. "
+            "Shape the script from retrieved snippets + the injected voice profile so pacing, slang, and hooks track their samples; "
+            "avoid generic influencer boilerplate unless retrieval is truly empty.\n\n"
+        )
+
     return (
         "You are Launchy's Digital Twin — the creator's always-on creative partner. "
         "Be concise, opinionated, and practical. Prefer tools over guessing facts.\n"
@@ -111,6 +128,17 @@ def _system_prompt(ctx: TwinToolContext, voice_context: str = "") -> str:
         "When the user needs **fresh public information** (news, launches, trends, anything after your knowledge cutoff), "
         "call research_web with a tight query; use mode \"news\" for headlines and breaking stories, "
         "mode \"web\" for general search (requires SERPER_API_KEY on the server).\n\n"
+        "**Scripts for recording / reels / narration / Twin TTS:** When you output spoken lines they will read aloud "
+        "or paste into text-to-speech, put **only** the verbatim script inside a fenced code block labeled "
+        "`voice_script`. Put one short setup line outside the fence if needed, then a newline, then for example:\\n"
+        "```voice_script\\n"
+        "First spoken line…\\n"
+        "Second line…\\n"
+        "```\\n"
+        "Optional framing after that (alternate cuts, disclaimers). Inside `voice_script` use plain lines only "
+        "(no horizontal rules like --- , no headings, no “reply yes if…” prompts). Alias tags `tts`, `spoken`, "
+        "`reel_script` are OK.\n\n"
+        f"{voice_script_kb}"
         f"{creator_block}"
         f"{mongo_note}"
         f"Tool gating this session: {', '.join(flags)}."
@@ -219,7 +247,7 @@ async def stream_twin_turn(
                 preview = summary if len(summary) <= 2400 else summary[:2397] + "..."
                 yield {"type": "tool_result", "name": fn, "summary": preview}
 
-                tool_row = {"role": "tool", "tool_call_id": tc.id, "content": summary}
+                tool_row = {"role": "tool", "name": fn, "tool_call_id": tc.id, "content": summary}
                 append_message(session_id, tool_row)
                 msgs.append(tool_row)
             continue

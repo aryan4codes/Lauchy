@@ -76,6 +76,8 @@ export default defineConfig(({ mode }) => {
         // Do not proxy `/voice` or `/twin` alone — those are SPA routes. API lives under these prefixes.
         "/voice/profiles": { target: apiProxyTarget, changeOrigin: true },
         "/twin/sessions": { target: apiProxyTarget, changeOrigin: true },
+        "/twin/suggestions": { target: apiProxyTarget, changeOrigin: true },
+        "/twin/tts": { target: apiProxyTarget, changeOrigin: true },
         "/ws": {
           target: wsProxyTarget,
           ws: true,
