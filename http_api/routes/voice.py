@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from starlette.responses import StreamingResponse
 
 from agents.voice_profiler import run_voice_profiler
+from agents.twin_voice_llm import infer_content_categories
 from memory.mongo_context import try_delete_voice_profile, try_sync_voice_profile
 from voice.schema import VoiceProfile
 from voice import sources as voice_sources
@@ -201,6 +202,23 @@ def profiles_patch(profile_id: str, body: VoiceProfilePatchRequest) -> VoiceProf
     data["updated_at"] = datetime.now(timezone.utc).isoformat()
     updated = VoiceProfile.model_validate(data)
     saved = save_profile(updated)
+    try_sync_voice_profile(saved)
+    return saved
+
+
+@router.post("/profiles/{profile_id}/recategorize", response_model=VoiceProfile)
+def profiles_recategorize(profile_id: str) -> VoiceProfile:
+    """Re-run niche tag inference without re-profiling."""
+    try:
+        p = load_profile(profile_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="profile not found") from None
+    cats = infer_content_categories(p)
+    payload = p.model_dump()
+    payload["content_categories"] = cats
+    payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+    refreshed = VoiceProfile.model_validate(payload)
+    saved = save_profile(refreshed)
     try_sync_voice_profile(saved)
     return saved
 

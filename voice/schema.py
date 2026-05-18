@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ReelTranscription(BaseModel):
@@ -52,6 +52,29 @@ class VoiceProfilerLLMOutput(BaseModel):
             "Sentence style, spoken delivery (if any), DO, DON'T, Example hooks — compact."
         ),
     )
+    content_categories: list[str] = Field(
+        default_factory=list,
+        description=(
+            "2–5 short genre tags (max ~4 words each) describing what this creator's content is actually about, "
+            "inferred from samples. Be specific (e.g. 'open-source AI tools', 'luxury watch reviews'); "
+            "avoid vague labels like 'Tech'."
+        ),
+        max_length=5,
+    )
+
+    @field_validator("content_categories", mode="after")
+    @classmethod
+    def _cap_tag_words(cls, v: list[str]) -> list[str]:
+        out: list[str] = []
+        for tag in v:
+            t = " ".join(tag.strip().split())
+            if not t:
+                continue
+            words = t.split()
+            if len(words) > 4:
+                t = " ".join(words[:4])
+            out.append(t)
+        return out[:5]
 
 
 class VoiceProfile(VoiceProfilerLLMOutput):
